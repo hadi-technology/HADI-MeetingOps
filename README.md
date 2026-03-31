@@ -1,4 +1,4 @@
-# @sweatco/zoom-mcp
+# @HADI/zoom-mcp
 
 MCP server for Zoom - access meeting transcripts and AI summaries from Claude.
 
