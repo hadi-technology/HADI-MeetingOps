@@ -1,6 +1,6 @@
-# Zoom MCP Server
+# HADI MeetingOps — Zoom MCP Server
 
-MCP server that lets Claude access Zoom meeting transcripts and AI summaries. Users can query their meetings, get transcripts, and search across meeting content.
+MCP server that lets Claude access Zoom meeting transcripts and AI summaries via Server-to-Server OAuth. Built by HADI Technology (haditechnology.com).
 
 ## Git Policy
 
@@ -8,19 +8,16 @@ MCP server that lets Claude access Zoom meeting transcripts and AI summaries. Us
 
 ## Architecture
 
-**MVP1 (implemented)**: User OAuth flow - each user authorizes their own Zoom account, can only access meetings they hosted.
+Uses Zoom **Server-to-Server OAuth** — no browser flow, no stored tokens. Credentials (`ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`) are set as environment variables. A token is fetched on startup and cached in memory; re-fetched automatically on expiry.
 
-**MVP2 (implemented)**: Admin proxy - Server-to-Server OAuth with admin scopes enables org-wide access. Users can access meetings they attended (not just hosted). See `docs/plans/mvp2.md`.
-
-**MVP3 (planned)**: Pre-registration rules & admin tools - Admins can pre-register users for meetings and grant/revoke access on-demand. See `docs/plans/mvp3.md`.
+Past meetings are sourced from the user-level recordings endpoint (`/users/{uid}/recordings`) rather than the meetings list endpoint, as it returns richer data and works reliably with S2S OAuth scopes.
 
 ## Tech Stack
 
 - TypeScript + ESM modules
 - `@modelcontextprotocol/sdk` for MCP protocol
-- Zoom OAuth 2.0 with browser flow
-- Token storage: OS keychain (primary), file fallback
-- Google Cloud Functions + Firestore (MVP2 proxy)
+- Zoom Server-to-Server OAuth (account_credentials grant)
+- No token storage — credentials injected via env vars
 
 ## Commands
 
@@ -28,24 +25,6 @@ MCP server that lets Claude access Zoom meeting transcripts and AI summaries. Us
 npm run build           # Compile TypeScript
 npm run dev             # Watch mode
 npm start               # Run MCP server
-npm run test:admin-api  # Test S2S OAuth (requires .env)
-```
-
-### Cloud Functions Commands
-```bash
-cd cloud-functions
-npm run build           # Compile cloud functions
-npm run deploy:oauth    # Deploy OAuth token exchange (MVP1)
-npm run deploy:webhook  # Deploy webhook handler (MVP2)
-npm run deploy:api      # Deploy proxy API (MVP2)
-npm run deploy:cleanup  # Deploy cleanup job (MVP2)
-```
-
-### Scripts
-```bash
-npx tsx scripts/backfill.ts --from=2025-12-01 --to=2026-01-17  # Backfill historical data
-npx tsx scripts/check-meeting.ts <meeting_id>                   # Debug meeting participants
-npx tsx scripts/check-roles.ts <email>                          # Check user roles
 ```
 
 ## MCP Tools
@@ -57,26 +36,22 @@ npx tsx scripts/check-roles.ts <email>                          # Check user rol
 | `get_summary` | Get AI Companion meeting summary |
 | `get_meeting` | Get meeting details and participants |
 | `search_meetings` | Search across transcripts and summaries |
+| `debug_status` | Check auth config and environment |
 
 ## Key Directories
 
 - `src/` - MCP server implementation
-- `cloud-functions/` - All cloud functions (OAuth, webhook, API proxy)
-- `scripts/` - Development and testing utilities
-- `docs/plans/` - Architecture plans (mvp1, mvp2, mvp3)
+- `src/auth/` - S2S OAuth token management
+- `src/tools/` - Individual MCP tool handlers
+- `cloud-functions/` - Optional GCP proxy for org-wide meeting access
+- `scripts/` - Development and debugging utilities
 
 ## Environment Variables
 
-### MCP Client
-- `ZOOM_PROXY_URL` - URL of the deployed proxy API (enables MVP2 features)
-
-### Cloud Functions
-- `ZOOM_CLIENT_ID` - User OAuth client ID (for OAuth function)
-- `ZOOM_CLIENT_SECRET` - User OAuth client secret (stored in Secret Manager)
-- `ZOOM_ADMIN_ACCOUNT_ID` - Zoom S2S OAuth account ID (for MVP2 functions)
-- `ZOOM_ADMIN_CLIENT_ID` - Zoom S2S OAuth client ID (for MVP2 functions)
-- `ZOOM_ADMIN_CLIENT_SECRET` - Zoom S2S OAuth client secret (stored in Secret Manager)
-- `ZOOM_WEBHOOK_SECRET_TOKEN` - Webhook validation token (stored in Secret Manager)
+- `ZOOM_ACCOUNT_ID` - Zoom account ID (from S2S OAuth app)
+- `ZOOM_CLIENT_ID` - S2S OAuth client ID
+- `ZOOM_CLIENT_SECRET` - S2S OAuth client secret
+- `ZOOM_PROXY_URL` - Optional: URL of deployed proxy API for org-wide access
 
 ## Testing
 
@@ -84,18 +59,6 @@ npx tsx scripts/check-roles.ts <email>                          # Check user rol
 # Test with MCP Inspector
 npx @modelcontextprotocol/inspector node dist/index.js
 
-# Clear stored tokens
-npx . --logout
+# Clear in-memory token cache (restart server)
+node dist/index.js --logout
 ```
-
-## MVP2 Deployment
-
-See `docs/plans/mvp2.md` for full setup guide. Quick reference:
-
-1. Create Zoom S2S OAuth app with admin scopes
-2. Configure `meeting.ended` webhook
-3. Create Firestore database and deploy indexes
-4. Store secrets in GCP Secret Manager
-5. Deploy cloud functions
-6. Run backfill script for historical data
-7. Set `ZOOM_PROXY_URL` in MCP client config

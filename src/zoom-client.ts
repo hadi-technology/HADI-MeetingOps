@@ -1,6 +1,5 @@
 import { ZOOM_API_BASE_URL } from './auth/constants.js';
-import { getValidAccessToken, refreshAccessToken } from './auth/oauth.js';
-import { loadTokens, saveTokens, deleteTokens } from './auth/token-store.js';
+import { getValidAccessToken } from './auth/oauth.js';
 import type {
   ZoomUser,
   ZoomRecording,
@@ -35,6 +34,20 @@ export class ZoomClient {
     return this.accessToken;
   }
 
+  // Extract user ID from the JWT payload (S2S tokens carry `uid`).
+  // Falls back to 'me' so user-level OAuth still works.
+  private async getUserId(): Promise<string> {
+    const token = await this.getToken();
+    try {
+      const payload = JSON.parse(
+        Buffer.from(token.split('.')[1], 'base64').toString()
+      ) as { uid?: string };
+      return payload.uid || 'me';
+    } catch {
+      return 'me';
+    }
+  }
+
   private async request<T>(
     endpoint: string,
     options: RequestInit = {},
@@ -52,24 +65,11 @@ export class ZoomClient {
       },
     });
 
-    // Handle 401 - token might be expired
+    // Handle 401 - S2S token may have expired; fetch a fresh one and retry once
     if (response.status === 401 && retry) {
-      // Try to refresh the token
-      const tokens = await loadTokens();
-      if (tokens?.refresh_token) {
-        try {
-          const newTokens = await refreshAccessToken(tokens.refresh_token);
-          await saveTokens(newTokens);
-          this.accessToken = newTokens.access_token;
-          return this.request<T>(endpoint, options, false);
-        } catch {
-          // Refresh failed, need to re-auth
-          await deleteTokens();
-          this.accessToken = null;
-          this.accessToken = await getValidAccessToken();
-          return this.request<T>(endpoint, options, false);
-        }
-      }
+      this.accessToken = null;
+      this.accessToken = await getValidAccessToken();
+      return this.request<T>(endpoint, options, false);
     }
 
     if (!response.ok) {
@@ -98,7 +98,8 @@ export class ZoomClient {
 
   // Get current user info
   async getCurrentUser(): Promise<ZoomUser> {
-    return this.request<ZoomUser>('/users/me');
+    const uid = await this.getUserId();
+    return this.request<ZoomUser>(`/users/${uid}`);
   }
 
   // List user's cloud recordings
@@ -108,6 +109,7 @@ export class ZoomClient {
     pageSize = 30,
     nextPageToken?: string
   ): Promise<ZoomRecordingsResponse> {
+    const uid = await this.getUserId();
     const params = new URLSearchParams({
       from,
       to,
@@ -116,7 +118,7 @@ export class ZoomClient {
     if (nextPageToken) {
       params.set('next_page_token', nextPageToken);
     }
-    return this.request<ZoomRecordingsResponse>(`/users/me/recordings?${params}`);
+    return this.request<ZoomRecordingsResponse>(`/users/${uid}/recordings?${params}`);
   }
 
   // Get all recordings with pagination
@@ -134,10 +136,36 @@ export class ZoomClient {
   }
 
   // Get recording details for a specific meeting
+  // For S2S OAuth, /meetings/{uuid}/recordings doesn't work — use getRecordingByUuid instead.
   async getMeetingRecordings(meetingId: string): Promise<ZoomRecording> {
     // Meeting ID needs to be double-encoded if it contains /
     const encodedId = encodeURIComponent(encodeURIComponent(meetingId));
     return this.request<ZoomRecording>(`/meetings/${encodedId}/recordings`);
+  }
+
+  // Find recording by UUID using the user-level recordings API (works with S2S OAuth).
+  // Searches a 90-day window around today; widens to 1 year if not found.
+  async getRecordingByUuid(uuid: string): Promise<ZoomRecording | null> {
+    const today = new Date();
+    const toDate = today.toISOString().split('T')[0];
+
+    // Try last 90 days first
+    const from90 = new Date(today);
+    from90.setDate(from90.getDate() - 90);
+    const fromDate = from90.toISOString().split('T')[0];
+
+    let recordings = await this.getAllRecordings(fromDate, toDate);
+    let match = recordings.find((r) => r.uuid === uuid);
+
+    if (!match) {
+      // Widen to 1 year
+      const from365 = new Date(today);
+      from365.setDate(from365.getDate() - 365);
+      recordings = await this.getAllRecordings(from365.toISOString().split('T')[0], toDate);
+      match = recordings.find((r) => r.uuid === uuid);
+    }
+
+    return match ?? null;
   }
 
   // Download a file (VTT transcript)
@@ -160,7 +188,9 @@ export class ZoomClient {
   // Get VTT transcript file from recording
   async getRecordingTranscript(meetingId: string): Promise<string | null> {
     try {
-      const recording = await this.getMeetingRecordings(meetingId);
+      // Try the user-level recordings API first (works with S2S OAuth)
+      const recording = await this.getRecordingByUuid(meetingId)
+        ?? await this.getMeetingRecordings(meetingId);
 
       // Find the VTT transcript file
       const vttFile = recording.recording_files.find(
@@ -188,6 +218,7 @@ export class ZoomClient {
     pageSize = 30,
     nextPageToken?: string
   ): Promise<ZoomPastMeetingsResponse> {
+    const uid = await this.getUserId();
     const params = new URLSearchParams({
       page_size: String(pageSize),
       type: 'previous_meetings',
@@ -197,7 +228,7 @@ export class ZoomClient {
     if (nextPageToken) {
       params.set('next_page_token', nextPageToken);
     }
-    return this.request<ZoomPastMeetingsResponse>(`/users/me/meetings?${params}`);
+    return this.request<ZoomPastMeetingsResponse>(`/users/${uid}/meetings?${params}`);
   }
 
   // List upcoming meetings
@@ -205,6 +236,7 @@ export class ZoomClient {
     pageSize = 30,
     nextPageToken?: string
   ): Promise<ZoomPastMeetingsResponse> {
+    const uid = await this.getUserId();
     const params = new URLSearchParams({
       page_size: String(pageSize),
       type: 'upcoming',
@@ -212,7 +244,7 @@ export class ZoomClient {
     if (nextPageToken) {
       params.set('next_page_token', nextPageToken);
     }
-    return this.request<ZoomPastMeetingsResponse>(`/users/me/meetings?${params}`);
+    return this.request<ZoomPastMeetingsResponse>(`/users/${uid}/meetings?${params}`);
   }
 
   // List live meetings
@@ -220,6 +252,7 @@ export class ZoomClient {
     pageSize = 30,
     nextPageToken?: string
   ): Promise<ZoomPastMeetingsResponse> {
+    const uid = await this.getUserId();
     const params = new URLSearchParams({
       page_size: String(pageSize),
       type: 'live',
@@ -227,7 +260,7 @@ export class ZoomClient {
     if (nextPageToken) {
       params.set('next_page_token', nextPageToken);
     }
-    return this.request<ZoomPastMeetingsResponse>(`/users/me/meetings?${params}`);
+    return this.request<ZoomPastMeetingsResponse>(`/users/${uid}/meetings?${params}`);
   }
 
   // Get past meeting details

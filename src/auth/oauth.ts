@@ -1,263 +1,76 @@
-import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { URL } from 'url';
-import { randomBytes } from 'crypto';
-import open from 'open';
 import type { ZoomTokens } from '../types.js';
 import {
+  ZOOM_ACCOUNT_ID,
   ZOOM_CLIENT_ID,
-  ZOOM_OAUTH_AUTHORIZE_URL,
-  OAUTH_URL,
-  OAUTH_REDIRECT_PORT,
-  OAUTH_REDIRECT_URI,
-  ZOOM_SCOPES,
+  ZOOM_CLIENT_SECRET,
+  ZOOM_TOKEN_URL,
   validateConfig,
 } from './constants.js';
-import { saveTokens, loadTokens, deleteTokens, isTokenExpired, setLastTokenSource, getLastTokenSource } from './token-store.js';
 
-// Generate a random state for CSRF protection
-function generateState(): string {
-  return randomBytes(32).toString('hex');
-}
+// In-memory token cache
+let cachedToken: ZoomTokens | null = null;
 
-// Exchange authorization code for tokens via proxy
-async function exchangeCodeForTokens(code: string): Promise<ZoomTokens> {
-  const response = await fetch(OAUTH_URL, {
+// Fetch a new access token from Zoom using Server-to-Server OAuth
+async function fetchServerToServerToken(): Promise<ZoomTokens> {
+  const credentials = Buffer.from(`${ZOOM_CLIENT_ID}:${ZOOM_CLIENT_SECRET}`).toString('base64');
+
+  const params = new URLSearchParams();
+  params.set('grant_type', 'account_credentials');
+  params.set('account_id', ZOOM_ACCOUNT_ID);
+
+  const response = await fetch(ZOOM_TOKEN_URL, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      Authorization: `Basic ${credentials}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
     },
-    body: JSON.stringify({
-      action: 'token',
-      code,
-      redirect_uri: OAUTH_REDIRECT_URI,
-    }),
+    body: params.toString(),
   });
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(`Token exchange failed: ${response.status} ${JSON.stringify(errorData)}`);
+    throw new Error(
+      `Zoom S2S token request failed: ${response.status} ${JSON.stringify(errorData)}`
+    );
   }
 
-  return (await response.json()) as ZoomTokens;
+  const data = (await response.json()) as {
+    access_token: string;
+    token_type: string;
+    expires_in: number;
+    scope: string;
+  };
+
+  return {
+    access_token: data.access_token,
+    token_type: data.token_type,
+    expires_in: data.expires_in,
+    scope: data.scope,
+    refresh_token: '', // S2S OAuth has no refresh token
+    expires_at: Date.now() + data.expires_in * 1000,
+  };
 }
 
-// Refresh access token via proxy
-export async function refreshAccessToken(refreshToken: string): Promise<ZoomTokens> {
-  const response = await fetch(OAUTH_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      action: 'refresh',
-      refresh_token: refreshToken,
-    }),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(`Token refresh failed: ${response.status} ${JSON.stringify(errorData)}`);
-  }
-
-  return (await response.json()) as ZoomTokens;
+function isTokenExpired(tokens: ZoomTokens): boolean {
+  if (!tokens.expires_at) return true;
+  // Refresh 5 minutes before expiry
+  return Date.now() > tokens.expires_at - 5 * 60 * 1000;
 }
 
-// Start OAuth flow with local callback server
-export async function startOAuthFlow(): Promise<ZoomTokens> {
-  return new Promise((resolve, reject) => {
-    const state = generateState();
-    let timeoutId: NodeJS.Timeout;
-
-    const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-      const url = new URL(req.url || '/', `http://localhost:${OAUTH_REDIRECT_PORT}`);
-
-      if (url.pathname === '/callback') {
-        const code = url.searchParams.get('code');
-        const returnedState = url.searchParams.get('state');
-        const error = url.searchParams.get('error');
-
-        if (error) {
-          res.writeHead(400, { 'Content-Type': 'text/html' });
-          res.end(`
-            <html>
-              <body style="font-family: system-ui; padding: 40px; text-align: center;">
-                <h1>Authorization Failed</h1>
-                <p>Error: ${error}</p>
-                <p>You can close this window.</p>
-              </body>
-            </html>
-          `);
-          clearTimeout(timeoutId);
-          server.close();
-          reject(new Error(`OAuth error: ${error}`));
-          return;
-        }
-
-        if (returnedState !== state) {
-          res.writeHead(400, { 'Content-Type': 'text/html' });
-          res.end(`
-            <html>
-              <body style="font-family: system-ui; padding: 40px; text-align: center;">
-                <h1>Authorization Failed</h1>
-                <p>State mismatch - possible CSRF attack.</p>
-                <p>You can close this window.</p>
-              </body>
-            </html>
-          `);
-          clearTimeout(timeoutId);
-          server.close();
-          reject(new Error('State mismatch'));
-          return;
-        }
-
-        if (!code) {
-          res.writeHead(400, { 'Content-Type': 'text/html' });
-          res.end(`
-            <html>
-              <body style="font-family: system-ui; padding: 40px; text-align: center;">
-                <h1>Authorization Failed</h1>
-                <p>No authorization code received.</p>
-                <p>You can close this window.</p>
-              </body>
-            </html>
-          `);
-          clearTimeout(timeoutId);
-          server.close();
-          reject(new Error('No authorization code'));
-          return;
-        }
-
-        try {
-          const tokens = await exchangeCodeForTokens(code);
-          await saveTokens(tokens);
-
-          res.writeHead(200, { 'Content-Type': 'text/html' });
-          res.end(`
-            <html>
-              <body style="font-family: system-ui; padding: 40px; text-align: center;">
-                <h1>Successfully Connected to Zoom!</h1>
-                <p>You can close this window and return to Claude.</p>
-                <script>setTimeout(() => window.close(), 3000);</script>
-              </body>
-            </html>
-          `);
-
-          clearTimeout(timeoutId);
-          server.close();
-          resolve(tokens);
-        } catch (err) {
-          res.writeHead(500, { 'Content-Type': 'text/html' });
-          res.end(`
-            <html>
-              <body style="font-family: system-ui; padding: 40px; text-align: center;">
-                <h1>Authorization Failed</h1>
-                <p>${err instanceof Error ? err.message : 'Unknown error'}</p>
-                <p>You can close this window.</p>
-              </body>
-            </html>
-          `);
-          clearTimeout(timeoutId);
-          server.close();
-          reject(err);
-        }
-      } else {
-        res.writeHead(404);
-        res.end('Not Found');
-      }
-    });
-
-    server.listen(OAUTH_REDIRECT_PORT, () => {
-      // Build authorization URL
-      const authUrl = new URL(ZOOM_OAUTH_AUTHORIZE_URL);
-      authUrl.searchParams.set('response_type', 'code');
-      authUrl.searchParams.set('client_id', ZOOM_CLIENT_ID);
-      authUrl.searchParams.set('redirect_uri', OAUTH_REDIRECT_URI);
-      authUrl.searchParams.set('scope', ZOOM_SCOPES);
-      authUrl.searchParams.set('state', state);
-
-      // Log to stderr so it doesn't interfere with MCP stdio
-      console.error('\nNo Zoom authorization found. Opening browser to connect...');
-      console.error(`If browser doesn't open, visit: ${authUrl.toString()}\n`);
-
-      // Open browser
-      open(authUrl.toString()).catch(() => {
-        // Browser open failed, user will need to use the URL manually
-      });
-    });
-
-    // Timeout after 5 minutes
-    timeoutId = setTimeout(() => {
-      server.close();
-      reject(new Error('OAuth flow timed out after 5 minutes'));
-    }, 5 * 60 * 1000);
-
-    server.on('error', (err: NodeJS.ErrnoException) => {
-      clearTimeout(timeoutId);
-      if (err.code === 'EADDRINUSE') {
-        reject(new Error(
-          `Port ${OAUTH_REDIRECT_PORT} is already in use. ` +
-          'Please close any application using this port and try again.'
-        ));
-      } else {
-        reject(err);
-      }
-    });
-  });
-}
-
-// Get valid access token, refreshing or starting OAuth flow if needed
+// Get a valid access token, fetching a new one if expired
 export async function getValidAccessToken(): Promise<string> {
-  // Validate config before attempting any OAuth operations
   validateConfig();
 
-  let tokens = await loadTokens();
-  const tokenSource = getLastTokenSource();
-
-  if (!tokens) {
-    // No tokens stored, start OAuth flow
-    tokens = await startOAuthFlow();
-    setLastTokenSource('oauth');
-    return tokens.access_token;
+  if (cachedToken && !isTokenExpired(cachedToken)) {
+    return cachedToken.access_token;
   }
 
-  // If loaded from env refresh token, always refresh to get valid access token
-  const needsRefresh = isTokenExpired(tokens) || tokenSource === 'env_refresh_token';
-
-  if (needsRefresh) {
-    // Token expired or from env, try to refresh
-    try {
-      tokens = await refreshAccessToken(tokens.refresh_token);
-      // Try to save tokens, but don't fail if save doesn't work
-      // (e.g., no write permissions on headless server)
-      try {
-        await saveTokens(tokens);
-      } catch (saveError) {
-        console.error('Warning: Could not save tokens:', saveError instanceof Error ? saveError.message : saveError);
-        // Continue anyway - we have valid tokens in memory
-      }
-      return tokens.access_token;
-    } catch {
-      // Refresh failed - if we have ZOOM_REFRESH_TOKEN env var, don't fall back to OAuth
-      // as we're likely in headless mode
-      if (process.env.ZOOM_REFRESH_TOKEN) {
-        throw new Error(
-          'Failed to refresh token from ZOOM_REFRESH_TOKEN. ' +
-          'The token may be invalid or expired. Please generate a new one with --export-token.'
-        );
-      }
-      // Refresh failed, start new OAuth flow
-      await deleteTokens();
-      tokens = await startOAuthFlow();
-      setLastTokenSource('oauth');
-      return tokens.access_token;
-    }
-  }
-
-  return tokens.access_token;
+  cachedToken = await fetchServerToServerToken();
+  return cachedToken.access_token;
 }
 
-// Logout - clear stored tokens
+// No-op: S2S OAuth has no stored tokens to clear
 export async function logout(): Promise<void> {
-  await deleteTokens();
-  console.error('Successfully logged out from Zoom.');
+  cachedToken = null;
+  console.error('Server-to-Server OAuth does not store tokens. Cache cleared.');
 }

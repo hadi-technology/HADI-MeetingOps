@@ -29,7 +29,8 @@ export async function getTranscript(input: GetTranscriptInput): Promise<Transcri
       let date = '';
 
       try {
-        const recording = await client.getMeetingRecordings(instanceUuid);
+        const recording = await client.getRecordingByUuid(instanceUuid)
+          ?? await client.getMeetingRecordings(instanceUuid);
         topic = recording.topic;
         date = recording.start_time;
       } catch {

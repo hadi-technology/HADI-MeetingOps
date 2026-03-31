@@ -126,50 +126,31 @@ export async function listMeetings(input: ListMeetingsInput): Promise<MeetingInf
     throw new Error('Querying other users\' meetings requires the proxy to be configured');
   }
 
-  // Direct Zoom API (only returns meetings user hosted)
-  const pastMeetingsResponse = await client.listPastMeetings(fromDate, toDate);
+  // Direct Zoom API — use the recordings endpoint as the primary source for past meetings.
+  // It returns richer data (instance UUID, recording files) and works with S2S OAuth.
+  const recordings = await client.getAllRecordings(fromDate, toDate);
 
-  // Get unique meeting IDs to fetch instances for
-  const uniqueMeetingIds = [...new Set(pastMeetingsResponse.meetings.map(m => String(m.id)))];
-
-  // Fetch instances for all meetings in parallel
-  const instancesMap = new Map<string, { uuid: string; start_time: string }[]>();
-  await Promise.all(
-    uniqueMeetingIds.map(async (meetingId) => {
-      try {
-        const instances = await client.getMeetingInstances(meetingId);
-        instancesMap.set(meetingId, instances);
-      } catch {
-        instancesMap.set(meetingId, []);
-      }
-    })
-  );
-
-  // Convert to MeetingInfo with correct instance UUIDs
   const meetings: MeetingInfo[] = [];
 
-  for (const meeting of pastMeetingsResponse.meetings) {
-    const meetingId = String(meeting.id);
-    const instances = instancesMap.get(meetingId) || [];
-    const instanceUuid = findInstanceUuid(instances, meeting.start_time);
-
-    // Skip meetings where we couldn't find the instance UUID
-    if (!instanceUuid) {
-      continue;
-    }
+  for (const recording of recordings) {
+    const hasTranscript = recording.recording_files?.some(
+      (f) => f.file_type === 'TRANSCRIPT' || f.file_extension === 'VTT'
+    ) ?? false;
 
     const meetingInfo: MeetingInfo = {
-      meeting_id: meetingId,
-      instance_uuid: instanceUuid,
-      topic: meeting.topic,
-      date: meeting.start_time,
-      duration_minutes: meeting.duration,
-      has_recording: false,
-      has_transcript: true,
-      has_summary: true,
+      meeting_id: String(recording.id),
+      instance_uuid: recording.uuid,
+      topic: recording.topic,
+      date: recording.start_time,
+      duration_minutes: recording.duration,
+      has_recording: true,
+      has_transcript: hasTranscript,
+      has_summary: true, // Will be confirmed when fetched
     };
 
-    if (filterType === 'all' || filterType === 'with_summary') {
+    if (filterType === 'recorded' || filterType === 'all') {
+      meetings.push(meetingInfo);
+    } else if (filterType === 'with_summary') {
       meetings.push(meetingInfo);
     }
   }
