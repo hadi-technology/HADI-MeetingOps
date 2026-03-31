@@ -1,11 +1,11 @@
 {
-  "name": "@sweatco/zoom-mcp",
-  "version": "0.1.8",
-  "description": "MCP server for Zoom - access meeting transcripts and AI summaries from Claude",
+  "name": "@hadi-technology/meetingops-zoom",
+  "version": "0.1.0",
+  "description": "HADI MeetingOps — Zoom meeting intelligence. Smart summaries, meeting prep, cross-meeting search, and action tracking.",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "zoom-mcp": "dist/index.js"
+    "hadi-meetingops": "dist/index.js"
   },
   "scripts": {
     "build": "tsc",
@@ -17,21 +17,24 @@
   "keywords": [
     "mcp",
     "zoom",
+    "meetings",
     "transcripts",
-    "claude",
-    "ai",
-    "meetings"
+    "summaries",
+    "meeting-prep",
+    "action-items",
+    "meeting-intelligence",
+    "hadi"
   ],
-  "author": "Sweatco",
+  "author": "HADI Technology",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/sweatco/zoom-mcp.git"
+    "url": "git+https://github.com/hadi-technology/hadi-meetingops.git"
   },
   "bugs": {
-    "url": "https://github.com/sweatco/zoom-mcp/issues"
+    "url": "https://github.com/hadi-technology/hadi-meetingops/issues"
   },
-  "homepage": "https://github.com/sweatco/zoom-mcp#readme",
+  "homepage": "https://github.com/hadi-technology/hadi-meetingops#readme",
   "engines": {
     "node": ">=18.0.0"
   },
