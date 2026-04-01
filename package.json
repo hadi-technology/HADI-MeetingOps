@@ -1,5 +1,5 @@
 {
-  "name": "@hadi-technology/meetingops-zoom",
+  "name": "hadi-meetingops",
   "version": "0.1.0",
   "description": "HADI MeetingOps — Zoom meeting intelligence. Smart summaries, meeting prep, cross-meeting search, and action tracking.",
   "type": "module",
@@ -29,12 +29,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/hadi-technology/hadi-meetingops.git"
+    "url": "git+https://github.com/hadi-technology/HADI-MeetingOps.git"
   },
   "bugs": {
-    "url": "https://github.com/hadi-technology/hadi-meetingops/issues"
+    "url": "https://github.com/hadi-technology/HADI-MeetingOps/issues"
   },
-  "homepage": "https://github.com/hadi-technology/hadi-meetingops#readme",
+  "homepage": "https://haditechnology.com/meetingops",
   "engines": {
     "node": ">=18.0.0"
   },

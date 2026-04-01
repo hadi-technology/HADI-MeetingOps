@@ -1,128 +1,89 @@
-# HADI MeetingOps — Zoom MCP Server
+# MEETING | OPS by HADI
 
-MCP server for Zoom — access meeting transcripts and AI summaries from Claude. Built by [HADI Technology](https://haditechnology.com).
+> Your Zoom meetings, inside Claude Cowork.
 
-## Features
+**HADI MeetingOps** is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server that brings your Zoom meetings directly into [Claude Cowork](https://claude.ai) — so you can ask questions, automate follow-ups, and build workflows powered by your meeting data, all from within Claude.
 
-- **List meetings** — Browse your recent Zoom meetings
-- **Get transcripts** — Full verbatim transcripts from recorded meetings
-- **Get AI summaries** — AI Companion meeting summaries with action items
-- **Get meeting details** — Participants, duration, recording availability
-- **Search** — Find meetings by keywords across transcripts and summaries
+No switching apps. No searching through recordings. Just ask Claude.
+
+🌐 [haditechnology.com/meetingops](https://haditechnology.com/meetingops)
+
+---
+
+## Works with Claude Cowork
+
+MeetingOps is built for **Claude Cowork** (claude.ai). Once connected, Claude has full access to your Zoom meeting history — you can ask it anything, chain it with other tools, and automate workflows directly inside your Claude workspace.
+
+- **"Summarize my last Zoom meeting"**
+- **"What action items came out of yesterday's call?"**
+- **"Draft a follow-up email based on my Q2 planning meeting"**
+- **"Search my meetings for anything we discussed about the budget"**
+- **"Prep me for my 2pm — what did we cover last time with this client?"**
+
+Because MeetingOps runs over MCP, Claude can combine your meeting data with any other connected tool — Notion, Asana, Slack, email, calendar — in a single conversation.
+
+---
+
+## What you can do
+
+- **Ask Claude anything** — natural language access to all your Zoom meetings
+- **Connect to other tools** — pipe meeting data into Notion, Asana, Slack & more via Claude Cowork
+- **Automate follow-ups** — Claude drafts emails, tasks, and summaries automatically
+- **Build custom workflows** — chain meeting insights with any other MCP server in Cowork
+- **Meeting prep** — surface relevant past discussions before your next call
 
 ## Requirements
 
-- Zoom Pro, Business, or Enterprise account
-- Cloud recording with "Audio transcript" enabled, or AI Companion enabled
-- A **Server-to-Server OAuth** app in the [Zoom Marketplace](https://marketplace.zoom.us/)
+- [Claude Cowork](https://claude.ai) or Claude for Desktop
+- A Zoom account with recorded meetings
+- Node.js 18+
 
 ## Setup
 
-### 1. Create a Zoom Server-to-Server OAuth App
+### 1. Authorize with Zoom
 
-1. Go to [Zoom Marketplace](https://marketplace.zoom.us/) → Develop → Build App
-2. Choose **Server-to-Server OAuth**
-3. Add the following scopes:
-   - `cloud_recording:read:list_user_recordings:admin`
-   - `cloud_recording:read:recording:admin`
-   - `cloud_recording:read:meeting_transcript:admin`
-   - `meeting:read:meeting:admin`
-   - `meeting:read:list_meetings:admin`
-   - `meeting:read:summary:admin`
-4. Activate the app and note your **Account ID**, **Client ID**, and **Client Secret**
+Visit [auth.haditechnology.com/zoom/authorize](https://auth.haditechnology.com/zoom/authorize) in your browser and sign in with your Zoom account. You'll be shown your **Zoom User ID** — copy it.
 
-### 2. Set environment variables
+### 2. Add to your MCP config
 
-```bash
-export ZOOM_ACCOUNT_ID=your_account_id
-export ZOOM_CLIENT_ID=your_client_id
-export ZOOM_CLIENT_SECRET=your_client_secret
-```
-
-Add these to your shell profile (`~/.zshrc` or `~/.bashrc`) to persist them.
-
-### 3. Configure Claude Desktop
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+In Claude Cowork or Claude for Desktop, add the following MCP server configuration:
 
 ```json
 {
   "mcpServers": {
-    "hadi-zoom": {
+    "hadi-meetingops": {
       "command": "npx",
-      "args": ["-y", "@hadi-technology/meetingops-zoom"],
+      "args": ["hadi-meetingops"],
       "env": {
-        "ZOOM_ACCOUNT_ID": "your_account_id",
-        "ZOOM_CLIENT_ID": "your_client_id",
-        "ZOOM_CLIENT_SECRET": "your_client_secret"
+        "ZOOM_USER_ID": "your_zoom_user_id_here",
+        "ZOOM_AUTH_URL": "https://auth.haditechnology.com"
       }
     }
   }
 }
 ```
 
-> Requires Node.js 18+.
+### 3. Restart Claude
 
-## Available Tools
+Restart Claude Cowork or Claude for Desktop. MeetingOps will appear as a connected tool and Claude will have access to your Zoom meetings.
+
+## Available tools
 
 | Tool | Description |
 |------|-------------|
 | `list_meetings` | List recent meetings with transcript/summary availability |
-| `get_transcript` | Get full meeting transcript (VTT or AI Companion) |
-| `get_summary` | Get AI Companion meeting summary |
+| `get_transcript` | Get full transcript or AI summary for a meeting |
+| `get_summary` | Get Zoom AI Companion meeting summary |
 | `get_meeting` | Get meeting details and participants |
-| `search_meetings` | Search meetings by keywords |
-| `debug_status` | Check authentication and configuration status |
+| `search_meetings` | Search across transcripts and summaries |
+| `debug_status` | Check auth config and environment |
 
-## Example Prompts
+## Privacy
 
-- "Show me my Zoom meetings from last week"
-- "Get the transcript from my meeting with John yesterday"
-- "What were the action items from yesterday's standup?"
-- "Summarize my meeting from this morning"
-- "Search my meetings for anything about the budget"
+MeetingOps does **not** record, store, or transmit your Zoom meeting content. The only data persisted is your Zoom User ID and OAuth refresh token (stored encrypted in Cloudflare KV). All meeting data is fetched on-demand and processed within Claude's context window only.
 
-## Transcript Sources
-
-The server automatically finds the best available transcript:
-
-| Source | When Available |
-|--------|----------------|
-| Cloud Recording VTT | Meeting was cloud recorded with "Audio transcript" enabled |
-| AI Companion Summary | AI Companion was enabled (recording not required) |
-
-## Troubleshooting
-
-**"No meetings found"**
-- Check that cloud recordings or AI Companion is enabled on your Zoom account
-- Verify your account is Pro/Business/Enterprise
-- Ensure the S2S app scopes include `cloud_recording:read:list_user_recordings:admin`
-
-**"Missing required environment variables"**
-- Ensure `ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID`, and `ZOOM_CLIENT_SECRET` are all set
-- Run `debug_status` tool to check what's configured
-
-**"No transcript available"**
-- The meeting may not have been recorded
-- AI Companion may not have been enabled for that meeting
-- Transcript may still be processing (wait ~2x the meeting duration after it ends)
-
-## Development
-
-```bash
-# Install dependencies
-npm install
-
-# Build
-npm run build
-
-# Test locally
-node dist/index.js
-
-# Test with MCP Inspector
-npx @modelcontextprotocol/inspector node dist/index.js
-```
+[Terms of Use](https://haditechnology.com/meetingops/terms) · [Privacy Policy](https://haditechnology.com/privacy)
 
 ## License
 
-MIT
+MIT © [HADI Technology](https://haditechnology.com)
