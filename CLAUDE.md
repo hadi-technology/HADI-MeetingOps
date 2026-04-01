@@ -1,6 +1,6 @@
 # HADI MeetingOps — Zoom MCP Server
 
-MCP server that lets Claude access Zoom meeting transcripts and AI summaries via Server-to-Server OAuth. Built by HADI Technology (haditechnology.com).
+MCP server that lets Claude access Zoom meeting transcripts and AI summaries. Built by HADI Technology (haditechnology.com).
 
 ## Git Policy
 
@@ -8,23 +8,34 @@ MCP server that lets Claude access Zoom meeting transcripts and AI summaries via
 
 ## Architecture
 
-Uses Zoom **Server-to-Server OAuth** — no browser flow, no stored tokens. Credentials (`ZOOM_ACCOUNT_ID`, `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`) are set as environment variables. A token is fetched on startup and cached in memory; re-fetched automatically on expiry.
+Two deployment modes:
 
-Past meetings are sourced from the user-level recordings endpoint (`/users/{uid}/recordings`) rather than the meetings list endpoint, as it returns richer data and works reliably with S2S OAuth scopes.
+**Remote (primary):** Cloudflare Worker at `mcp.haditechnology.com/meetingops`. Bearer token = Zoom User ID. Tokens stored in Cloudflare KV (`tokens:{userId}`). Auto-refreshes expired tokens via Zoom OAuth.
+
+**Local (npm):** Node.js process launched by Claude for Desktop via `npx hadi-meetingops`. Uses `ZOOM_USER_ID` + `ZOOM_AUTH_URL` env vars. Calls `POST /zoom/token` on the HADI Auth Worker to get a valid access token.
+
+Auth worker lives at `https://auth.haditechnology.com` (Cloudflare Worker in `~/hadi-auth-worker`). Remote MCP worker lives in `~/hadi-mcp-worker`.
 
 ## Tech Stack
 
 - TypeScript + ESM modules
-- `@modelcontextprotocol/sdk` for MCP protocol
-- Zoom Server-to-Server OAuth (account_credentials grant)
-- No token storage — credentials injected via env vars
+- `@modelcontextprotocol/sdk` for the local npm package
+- Remote worker: vanilla Cloudflare Worker (no SDK), implements MCP JSON-RPC directly
+- Zoom User OAuth (authorization_code grant)
+- Cloudflare KV for token storage (shared between auth worker and MCP worker)
 
 ## Commands
 
 ```bash
-npm run build           # Compile TypeScript
+npm run build           # Compile TypeScript (local npm package)
 npm run dev             # Watch mode
-npm start               # Run MCP server
+npm start               # Run local MCP server
+
+# Deploy remote MCP worker
+cd ~/hadi-mcp-worker && npx wrangler deploy
+
+# Deploy auth worker
+cd ~/hadi-auth-worker && npx wrangler deploy
 ```
 
 ## MCP Tools
@@ -32,33 +43,44 @@ npm start               # Run MCP server
 | Tool | Description |
 |------|-------------|
 | `list_meetings` | List recent meetings with transcript/summary availability |
-| `get_transcript` | Get full meeting transcript (VTT or AI summary fallback) |
-| `get_summary` | Get AI Companion meeting summary |
+| `get_transcript` | Get full meeting transcript (VTT) |
+| `get_summary` | Get Zoom AI Companion meeting summary |
 | `get_meeting` | Get meeting details and participants |
 | `search_meetings` | Search across transcripts and summaries |
-| `debug_status` | Check auth config and environment |
 
 ## Key Directories
 
-- `src/` - MCP server implementation
-- `src/auth/` - S2S OAuth token management
-- `src/tools/` - Individual MCP tool handlers
-- `cloud-functions/` - Optional GCP proxy for org-wide meeting access
-- `scripts/` - Development and debugging utilities
+- `src/` — Local npm MCP server implementation
+- `~/hadi-mcp-worker/src/index.ts` — Remote Cloudflare Worker MCP server
+- `~/hadi-auth-worker/src/` — Zoom OAuth token management worker
 
-## Environment Variables
+## Environment Variables (local npm mode)
 
-- `ZOOM_ACCOUNT_ID` - Zoom account ID (from S2S OAuth app)
-- `ZOOM_CLIENT_ID` - S2S OAuth client ID
-- `ZOOM_CLIENT_SECRET` - S2S OAuth client secret
-- `ZOOM_PROXY_URL` - Optional: URL of deployed proxy API for org-wide access
+- `ZOOM_USER_ID` — Zoom user ID (from `/zoom/authorize` success page)
+- `ZOOM_AUTH_URL` — Base URL of the HADI Auth Worker (default: `https://auth.haditechnology.com`)
+
+## Remote MCP Worker Config
+
+- Client ID in `wrangler.toml` as `ZOOM_CLIENT_ID`
+- Client secret via `npx wrangler secret put ZOOM_CLIENT_SECRET`
+- KV namespace ID: `58ed9ac316a247b8b42aa3cc08bebfee`
+
+## First-time Setup (end user)
+
+1. Visit `https://auth.haditechnology.com/zoom/authorize`
+2. Authorize with Zoom account
+3. Copy the `ZOOM_USER_ID` from the success page
+4. Add `https://mcp.haditechnology.com/meetingops` as a custom connector in Claude.ai, using the User ID as the Bearer token
 
 ## Testing
 
 ```bash
-# Test with MCP Inspector
-npx @modelcontextprotocol/inspector node dist/index.js
+# Test remote MCP endpoint
+curl -X POST https://mcp.haditechnology.com/meetingops \
+  -H "Authorization: Bearer YOUR_ZOOM_USER_ID" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}'
 
-# Clear in-memory token cache (restart server)
-node dist/index.js --logout
+# Test local package with MCP Inspector
+npx @modelcontextprotocol/inspector node dist/index.js
 ```

@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { logout, getValidAccessToken } from './auth/oauth.js';
-import { ZOOM_ACCOUNT_ID, ZOOM_CLIENT_ID } from './auth/constants.js';
+import { ZOOM_USER_ID, ZOOM_AUTH_URL } from './auth/constants.js';
 import { listMeetings } from './tools/list-meetings.js';
 import { getTranscript } from './tools/get-transcript.js';
 import { getSummary } from './tools/get-summary.js';
@@ -17,9 +17,9 @@ if (process.argv.includes('--logout')) {
   process.exit(0);
 }
 
-// Authenticate on startup — fetches a Server-to-Server OAuth token
+// Validate config and fetch a token on startup to catch auth issues early
 await getValidAccessToken();
-console.error('✓ Authenticated with Zoom (Server-to-Server OAuth)');
+console.error('✓ Authenticated with Zoom (User OAuth via HADI Auth Worker)');
 
 // Create MCP server
 const server = new McpServer({
@@ -191,10 +191,9 @@ server.registerTool(
     try {
       const status = {
         authentication: {
-          type: 'Server-to-Server OAuth',
-          account_id_set: !!ZOOM_ACCOUNT_ID,
-          client_id: ZOOM_CLIENT_ID ? `${ZOOM_CLIENT_ID.slice(0, 8)}...` : null,
-          client_secret_set: !!process.env.ZOOM_CLIENT_SECRET,
+          type: 'User OAuth (HADI Auth Worker)',
+          user_id: ZOOM_USER_ID ? `${ZOOM_USER_ID.slice(0, 8)}...` : '(not set)',
+          auth_worker: ZOOM_AUTH_URL,
         },
         environment: {
           node_version: process.version,

@@ -21,3 +21,12 @@ npm-debug.log*
 # Environment
 .env
 .env.local
+
+# Dev scripts (not needed for consumers)
+scripts/
+
+# GCP/Firebase cloud functions (internal infrastructure)
+cloud-functions/
+
+# OS
+.DS_Store

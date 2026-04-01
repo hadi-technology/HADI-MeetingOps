@@ -1,32 +1,28 @@
-// Server-to-Server OAuth Configuration
-// All values come from the Zoom Server-to-Server OAuth app in Zoom Marketplace.
+// User OAuth Configuration
+// ZOOM_USER_ID: your Zoom user ID (shown after visiting ZOOM_AUTH_URL/zoom/authorize)
+// ZOOM_AUTH_URL: base URL of the HADI Auth Worker
 
-export const ZOOM_ACCOUNT_ID = process.env.ZOOM_ACCOUNT_ID || '';
-export const ZOOM_CLIENT_ID = process.env.ZOOM_CLIENT_ID || '';
-export const ZOOM_CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET || '';
+export const ZOOM_USER_ID = process.env.ZOOM_USER_ID || '';
+export const ZOOM_AUTH_URL = process.env.ZOOM_AUTH_URL || 'https://auth.haditechnology.com';
 
-export const ZOOM_TOKEN_URL = 'https://zoom.us/oauth/token';
 export const ZOOM_API_BASE_URL = 'https://api.zoom.us/v2';
 
 /**
- * Validate that all required Server-to-Server OAuth credentials are present.
- * Called before the first token fetch, not at import time.
+ * Validate that required env vars are present before the first token fetch.
  */
 export function validateConfig(): void {
-  const missing: string[] = [];
-  if (!ZOOM_ACCOUNT_ID) missing.push('ZOOM_ACCOUNT_ID');
-  if (!ZOOM_CLIENT_ID) missing.push('ZOOM_CLIENT_ID');
-  if (!ZOOM_CLIENT_SECRET) missing.push('ZOOM_CLIENT_SECRET');
-  if (missing.length > 0) {
+  if (!ZOOM_USER_ID) {
+    const authorizeUrl = `${ZOOM_AUTH_URL}/zoom/authorize`;
     throw new Error(
-      `Missing required environment variables: ${missing.join(', ')}. ` +
-      'Set these from your Zoom Server-to-Server OAuth app in the Zoom Marketplace.'
+      `Missing required environment variable: ZOOM_USER_ID.\n` +
+      `1. Open this URL in your browser to connect your Zoom account:\n   ${authorizeUrl}\n` +
+      `2. Copy the Zoom User ID shown on the success page.\n` +
+      `3. Add ZOOM_USER_ID to your MCP server config and restart.`
     );
   }
 }
 
-// Keychain constants kept for token-store compatibility (token-store is no longer used
-// by S2S auth but may still be imported elsewhere)
+// Kept for token-store compatibility
 export const KEYCHAIN_SERVICE = 'zoom-mcp';
 export const KEYCHAIN_ACCOUNT = 'oauth-tokens';
 export const CONFIG_DIR = '.config/zoom-mcp';
