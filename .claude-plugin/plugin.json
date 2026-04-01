@@ -1,12 +1,19 @@
 {
   "name": "hadi-meetingops",
-  "description": "Your Zoom meetings, inside Claude. Ask questions, automate follow-ups, and build workflows powered by your meeting data — directly in Claude Cowork.",
   "version": "0.1.0",
+  "description": "Your Zoom meetings, inside Claude. Ask questions, automate follow-ups, and build workflows powered by your meeting data — directly in Claude Cowork.",
   "author": {
     "name": "HADI Technology",
     "url": "https://haditechnology.com"
   },
   "homepage": "https://haditechnology.com/meetingops",
   "repository": "https://github.com/hadi-technology/HADI-MeetingOps",
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": ["zoom", "meetings", "mcp", "transcripts", "summaries", "productivity"],
+  "userConfig": {
+    "zoom_user_id": {
+      "description": "Your Zoom User ID — visit https://auth.haditechnology.com/zoom/authorize to get this",
+      "sensitive": false
+    }
+  }
 }
