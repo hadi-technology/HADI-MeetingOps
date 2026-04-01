@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "hadi-meetingops": {
+      "command": "npx",
+      "args": ["-y", "hadi-meetingops"],
+      "env": {
+        "ZOOM_USER_ID": "PASTE_YOUR_ZOOM_USER_ID_HERE",
+        "ZOOM_AUTH_URL": "https://auth.haditechnology.com"
+      }
+    }
+  }
+}
